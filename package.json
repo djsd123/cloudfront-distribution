@@ -1,0 +1,16 @@
+{
+  "name": "cloudfront-distribution",
+  "version": "0.1.0",
+  "description": "Reusable package to create a cloudfront distribution",
+  "main": "index.ts",
+  "author": "M Allison",
+  "license": "MIT",
+  "private": null,
+  "devDependencies": {
+    "@types/node": "^10.0.0"
+  },
+  "dependencies": {
+    "@pulumi/aws": "^3.0.0",
+    "@pulumi/pulumi": "^2.0.0"
+  }
+}
