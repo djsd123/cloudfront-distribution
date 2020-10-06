@@ -5,6 +5,10 @@ import { Helpers } from './helpers'
 
 const ttl = 60 * 10
 
+const provider = new aws.Provider('provider-us-east-1', {
+    region: 'us-east-1'
+})
+
 export class NewCloudFrontDistribution extends pulumi.ComponentResource {
 
     origin: aws.s3.Bucket | aws.apigateway.Stage
@@ -75,6 +79,89 @@ export class NewCloudFrontDistribution extends pulumi.ComponentResource {
             })
 
         }
+
+        // Create default WAF access control list
+
+        const defaultWebAcl = new aws.wafv2.WebAcl(name, {
+            description: 'Best practice AWS WAF rules',
+            scope: 'CLOUDFRONT',
+
+            defaultAction: {
+                allow: {}
+            },
+
+            rules: [
+                {
+                    name: 'AWS-AWSManagedRulesCommonRuleSet',
+                    priority: 0,
+
+                    overrideAction: {
+                        count: {}
+                    },
+
+                    statement: {
+                        managedRuleGroupStatement: {
+                            name: 'AWSManagedRulesCommonRuleSet',
+                            vendorName: 'AWS'
+                        }
+                    },
+
+                    visibilityConfig: {
+                        cloudwatchMetricsEnabled: true,
+                        metricName: 'AWSManagedRulesCommonRuleSet',
+                        sampledRequestsEnabled: true
+                    }
+                },
+                {
+                    name: 'AWS-AWSManagedRulesAnonymousIpList',
+                    priority: 1,
+
+                    overrideAction: {
+                        count: {}
+                    },
+
+                    statement: {
+                        managedRuleGroupStatement: {
+                            name: 'AWSManagedRulesAnonymousIpList',
+                            vendorName: 'AWS'
+                        }
+                    },
+
+                    visibilityConfig: {
+                        cloudwatchMetricsEnabled: true,
+                        metricName: 'AWS-AWSManagedRulesAnonymousIpList',
+                        sampledRequestsEnabled: true
+                    }
+                },
+                {
+                    name: 'AWS-AWSManagedRulesAmazonIpReputationList',
+                    priority: 2,
+
+                    overrideAction: {
+                        count: {}
+                    },
+
+                    statement: {
+                        managedRuleGroupStatement: {
+                            name: 'AWSManagedRulesAmazonIpReputationList',
+                            vendorName: 'AWS'
+                        }
+                    },
+
+                    visibilityConfig: {
+                        cloudwatchMetricsEnabled: true,
+                        metricName: 'AWS-AWSManagedRulesAmazonIpReputationList',
+                        sampledRequestsEnabled: true
+                    }
+                }
+            ],
+
+            visibilityConfig: {
+                cloudwatchMetricsEnabled: true,
+                metricName: name,
+                sampledRequestsEnabled: true
+            }
+        }, { provider })
 
         const cloudFrontDistributionArgs: aws.cloudfront.DistributionArgs = {
 
@@ -149,11 +236,16 @@ export class NewCloudFrontDistribution extends pulumi.ComponentResource {
                 prefix: `${this.domainName}/`,
             } : undefined,
 
-            webAclId: this.wafAcl?.arn
+            // If no WebACL is defined.  Use default
+
+            webAclId: this.wafAcl?.arn || defaultWebAcl.arn
         }
 
-        const cdn = new aws.cloudfront.Distribution('cdn', cloudFrontDistributionArgs)
+        const cdn = new aws.cloudfront.Distribution('cdn', cloudFrontDistributionArgs, { provider })
+
+        // Create an A record for this distribution
 
         Helpers.createAliasRecord(this.domainName, cdn)
+
     }
 }
