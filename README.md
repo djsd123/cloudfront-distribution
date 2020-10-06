@@ -7,7 +7,7 @@ Also, creates a Route53 record to aliases the cloudfront distribution.
 
 #### Prerequisites
 
-* [nodejs](https://nodejs.org/en/download/) or [yarn](https://classic.yarnpkg.com/en/docs/install)
+* [nodejs](https://nodejs.org/en/download/) and optionally [yarn](https://classic.yarnpkg.com/en/docs/install)
 * [pulumi](https://www.pulumi.com/docs/get-started/install/#install-pulumi)
 * [typescript](https://www.typescriptlang.org/index.html#download-links)
 
