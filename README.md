@@ -15,22 +15,36 @@ Also, creates a Route53 record to aliases the cloudfront distribution.
 
 ```typescript
 ///// Example Instantiation /////
-import * as dist from 'new-cloud-front-distribution'
+import * as aws from "@pulumi/aws";
+import {NewCloudFrontDistribution} from "../index";
 
-const stackConfig = new pulumi.Config()
-const config = {
-    domain: stackConfig.require('domain'),
-    certificateArn: stackConfig.require('certificateArn')
-}
-
-const contentBucket = new aws.s3.Bucket('web-content', {
-    bucket: config.domain,
+const webBucket = new aws.s3.Bucket('website', {
+    bucket: 'your.domain.co.uk',
     acl: 'private',
     website: {
-        indexDocument: 'index.html',
-        errorDocument: '404.html',
-    }
+        indexDocument: 'index.html'
+    },
+
+    forceDestroy: true
 })
+
+new aws.s3.BucketPublicAccessBlock('mainBucketPublicAccessBlock', {
+    bucket: webBucket.id,
+    blockPublicAcls: true,
+    blockPublicPolicy: true,
+    ignorePublicAcls: true,
+    restrictPublicBuckets: true
+})
+
+new aws.s3.BucketObject('index', {
+    key: 'index.html',
+    acl: 'public-read',
+    bucket: webBucket,
+    content: `<!DOCTYPE html>
+              <html lang="en">
+                <body>Hello There</body>
+              </html>`
+}, { parent: webBucket })
 
 // OPTIONAL: logs bucket is an S3 bucket that will contain the CDN's request logs
 
@@ -39,5 +53,12 @@ const logBucket = new aws.s3.Bucket('requestLogs', {
     acl: 'private',
 })
 
-new NewCloudFrontDistribution('dist', contentBucket, config.domain, config.certificateArn, logBucket)
+const mydist = new NewCloudFrontDistribution('newcdn', {
+    origin: webBucket,
+    domainName: 'your.domain.co.uk',
+    certificateArn: 'arn:aws:acm:us-east-1:accountid:certificate/some-hash-generated-by-aws'
+})
+
+export const endpoints = mydist.cdn.aliases
+export const cloudfrontEndpoint = mydist.cdn.domainName
 ```
