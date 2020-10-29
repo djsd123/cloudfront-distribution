@@ -9,8 +9,7 @@ const provider = new aws.Provider('provider-us-east-1', {
     region: 'us-east-1'
 })
 
-export class NewCloudFrontDistribution extends pulumi.ComponentResource {
-
+export interface CloudFrontDistributionInputs {
     origin: aws.s3.Bucket | aws.apigateway.Stage
 
     domainName: string
@@ -22,19 +21,17 @@ export class NewCloudFrontDistribution extends pulumi.ComponentResource {
     priceClass?: string
 
     wafAcl?: aws.wafv2.WebAcl
+}
 
-    constructor(name: string, origin: aws.s3.Bucket | aws.apigateway.Stage, domainName: string, certificateArn: string,
-                loggingBucket?: aws.s3.Bucket, priceClass?: string, wafAcl?: aws.wafv2.WebAcl,
-                opts: pulumi.ComponentResourceOptions = {}) {
+export class NewCloudFrontDistribution extends pulumi.ComponentResource {
 
-        super('cloudFrontDistribution', name, {}, opts)
+    readonly defaultWebAcl: aws.wafv2.WebAcl
 
-        this.origin = origin
-        this.domainName = domainName
-        this.certificateArn = certificateArn
-        this.loggingBucket = loggingBucket
-        this.priceClass = priceClass
-        this.wafAcl = wafAcl
+    readonly cdn: aws.cloudfront.Distribution
+
+    constructor(name: string, args: CloudFrontDistributionInputs, opts: pulumi.ComponentResourceOptions = {}) {
+
+        super('djsd123:components:NewCloudFrontDistribution', name, args, opts)
 
         const isBucket = (origin: aws.s3.Bucket | aws.apigateway.Stage): origin is aws.s3.Bucket => {
             return (
@@ -44,11 +41,11 @@ export class NewCloudFrontDistribution extends pulumi.ComponentResource {
 
         // Create Origin Access Identity
 
-        const oai = new aws.cloudfront.OriginAccessIdentity('origin-access-identity', {
+        const oai = new aws.cloudfront.OriginAccessIdentity(`${name}-origin-access-identity`, {
             comment: 'Ensure visitors cannot access the site using the S3 endpoint url'
-        })
+        }, { parent: this})
 
-        if (isBucket(this.origin)) {
+        if (isBucket(args.origin)) {
 
             const originAccessIdentityPolicyStatement: aws.iam.PolicyStatement[] = [{
                 Sid: 'originAccess',
@@ -64,7 +61,7 @@ export class NewCloudFrontDistribution extends pulumi.ComponentResource {
                 See: https://github.com/pulumi/pulumi/pull/2496/files
                 Hence: using the `interpolate` function
                  */
-                Resource: pulumi.interpolate `${this.origin.arn}/*`
+                Resource: pulumi.interpolate `${args.origin.arn}/*`
             }]
 
             const originAccessIdentityPolicy: aws.iam.PolicyDocument = {
@@ -73,16 +70,16 @@ export class NewCloudFrontDistribution extends pulumi.ComponentResource {
                 Statement: originAccessIdentityPolicyStatement
             }
 
-            new aws.s3.BucketPolicy('originPolicyAttachment', {
-                bucket: this.origin.id,
+            new aws.s3.BucketPolicy(`${name}-originPolicyAttachment`, {
+                bucket: args.origin.id,
                 policy: originAccessIdentityPolicy,
-            })
+            }, { parent: this })
 
         }
 
         // Create default WAF access control list
 
-        const defaultWebAcl = new aws.wafv2.WebAcl(name, {
+        this.defaultWebAcl = new aws.wafv2.WebAcl(`${name}-waf`, {
             description: 'Best practice AWS WAF rules',
             scope: 'CLOUDFRONT',
 
@@ -161,24 +158,24 @@ export class NewCloudFrontDistribution extends pulumi.ComponentResource {
                 metricName: name,
                 sampledRequestsEnabled: true
             }
-        }, { provider })
+        }, { parent: this, provider, deleteBeforeReplace: true })
 
         const cloudFrontDistributionArgs: aws.cloudfront.DistributionArgs = {
 
             enabled: true,
 
-            aliases: [this.domainName],
+            aliases: [args.domainName],
 
             origins: [
                 {
-                    originId: this.origin.arn,
-                    domainName: isBucket(this.origin) ?
-                        this.origin.bucketRegionalDomainName :
-                        this.origin.invokeUrl.apply(s => {
-                            return s.replace(`/${(this.origin as aws.apigateway.Stage).stageName}`, '')
+                    originId: args.origin.arn,
+                    domainName: isBucket(args.origin) ?
+                        args.origin.bucketRegionalDomainName :
+                        args.origin.invokeUrl.apply(s => {
+                            return s.replace(`/${(args.origin as aws.apigateway.Stage).stageName}`, '')
                         }),
-                    originPath: isBucket(this.origin) ? undefined : this.origin.stageName,
-                    s3OriginConfig: isBucket(this.origin) ? {
+                    originPath: isBucket(args.origin) ? undefined : args.origin.stageName,
+                    s3OriginConfig: isBucket(args.origin) ? {
                         originAccessIdentity: oai.cloudfrontAccessIdentityPath
                     } : undefined
                 }
@@ -187,7 +184,7 @@ export class NewCloudFrontDistribution extends pulumi.ComponentResource {
             defaultRootObject: 'index.html',
 
             defaultCacheBehavior: {
-                targetOriginId: this.origin.arn,
+                targetOriginId: args.origin.arn,
                 viewerProtocolPolicy: 'redirect-to-https',
                 allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
                 cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
@@ -206,12 +203,12 @@ export class NewCloudFrontDistribution extends pulumi.ComponentResource {
             // "All" is the most broad distribution, and also the most expensive.
             // "100" is the least broad (USA, Canada and Europe), and also the least expensive.
 
-            priceClass: this.priceClass || 'PriceClass_100',
+            priceClass: args.priceClass || 'PriceClass_100',
 
             // You can customize error responses. When CloudFront recieves an error from the origin (e.g. S3 or some other
             // web service) it can return a different error code, and return the response for a different resource.
 
-            customErrorResponses: isBucket(this.origin) ? [
+            customErrorResponses: isBucket(args.origin) ? [
                 {
                     errorCode: 404,
                     responseCode: 404,
@@ -226,26 +223,34 @@ export class NewCloudFrontDistribution extends pulumi.ComponentResource {
             },
 
             viewerCertificate: {
-                acmCertificateArn: this.certificateArn,
+                acmCertificateArn: args.certificateArn,
                 sslSupportMethod: 'sni-only',
             },
 
-            loggingConfig: this.loggingBucket ? {
-                bucket: this.loggingBucket?.bucketDomainName,
+            loggingConfig: args.loggingBucket ? {
+                bucket: args.loggingBucket?.bucketDomainName,
                 includeCookies: false,
-                prefix: `${this.domainName}/`,
+                prefix: `${args.domainName}/`,
             } : undefined,
 
             // If no WebACL is defined.  Use default
 
-            webAclId: this.wafAcl?.arn || defaultWebAcl.arn
+            webAclId: args.wafAcl?.arn || this.defaultWebAcl.arn
         }
 
-        const cdn = new aws.cloudfront.Distribution('cdn', cloudFrontDistributionArgs, { provider })
+        this.cdn = new aws.cloudfront.Distribution(`${name}-cdn`, cloudFrontDistributionArgs, {
+            parent: this,
+            provider
+        })
 
         // Create an A record for this distribution
 
-        Helpers.createAliasRecord(this.domainName, cdn)
+        Helpers.createAliasRecord(args.domainName, this.cdn)
 
+        this.registerOutputs({
+            cloudFrontDomainName: this.cdn.domainName,
+            cloudFrontUrn: this.cdn.urn,
+            wafWebAclUrn: this.defaultWebAcl.urn,
+        })
     }
 }
